@@ -116,7 +116,7 @@ scan:
 	}
 
 	for {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
 
 		select {
 		case msg := <-inbox:
