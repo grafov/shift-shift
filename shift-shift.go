@@ -18,6 +18,7 @@ import (
 	"fmt"
 	evdev "github.com/gvalkov/golang-evdev"
 	"os"
+	// "os/exec"
 	"os/signal"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ func main() {
 	signal.Notify(terminate, os.Interrupt)
 
 	if *listDevices {
-		scanDevices()
+		scanDevices(nil)
 	} else {
 		go listenKeyboards(*printMode, *quietMode)
 		<-terminate
@@ -75,24 +76,40 @@ func switchXkbGroup(group uint) {
 }
 
 // Обнаруживает устройства, похожие на клавиатуры.
-func scanDevices() (keyboards []*evdev.InputDevice) {
+func scanDevices(mbox chan Message) {
+	var keyboards map[string]*evdev.InputDevice = make(map[string]*evdev.InputDevice)
+
+	kbdLost := make(chan string, 8)
+
 	for {
-		devnames, err := evdev.ListInputDevices("/dev/input/event*")
-		if err == nil && len(devnames) > 0 {
-			for _, input := range devnames {
-				dev, err := evdev.Open(input)
-				if err != nil {
-					fmt.Printf("Can't open %s\n", input)
-					continue
-				}
-				if strings.Contains(strings.ToLower(dev.Name), "keyboard") {
-					fmt.Printf("Keyboard found as %s [%s]\n", dev.Name, input)
-					keyboards = append(keyboards, dev)
+		select {
+		case input := <-kbdLost:
+			delete(keyboards, input)
+		default:
+			devnames, err := evdev.ListInputDevices("/dev/input/event*")
+			if err == nil && len(devnames) > 0 {
+				for _, input := range devnames {
+					dev, err := evdev.Open(input)
+					if err != nil {
+						fmt.Printf("Can't open %s\n", input)
+						continue
+					}
+					if strings.Contains(strings.ToLower(dev.Name), "keyboard") {
+						if _, ok := keyboards[input]; !ok {
+							fmt.Printf("Keyboard found as %s [%s]\n", dev.Name, input)
+							if mbox != nil {
+								keyboards[input] = dev
+								go listenEvents(input, dev, mbox, kbdLost)
+								// TODO эти гвозди надо выковырять
+								// exec.Command("sudo", "-u", "$USER", "setxkbmap", "-layout", "us+typo,ru:2+typo", "-option", "lv3:ralt_switch").Start()
+								// exec.Command("sudo", "-u", "$USER", "xset", "r", "rate", "300", "55").Start()
+							}
+						}
+					}
 				}
 			}
-			return
+			time.Sleep(4 * time.Second)
 		}
-		time.Sleep(3 * time.Second)
 	}
 }
 
@@ -100,24 +117,13 @@ func scanDevices() (keyboards []*evdev.InputDevice) {
 func listenKeyboards(printMode, quietMode bool) {
 	var lshift, rshift, lshift_started, rshift_started bool
 
-scan:
-	keyboards := scanDevices()
-	if keyboards == nil {
-		time.Sleep(5 * time.Second)
-		goto scan
-	}
 	inbox := make(chan Message, 8)
+	kbdLost := make(chan bool, 8)
+	kbdLost <- true // init
 
-	for _, kbd := range keyboards {
-		if kbd == nil {
-			continue
-		}
-		go listenEvents(kbd, inbox)
-	}
+	go scanDevices(inbox)
 
 	for {
-		time.Sleep(5 * time.Millisecond)
-
 		select {
 		case msg := <-inbox:
 			for _, ev := range msg.Events {
@@ -181,13 +187,13 @@ scan:
 }
 
 // Слушает события и возвращает их в поток управления.
-func listenEvents(kbd *evdev.InputDevice, replyTo chan Message) {
+func listenEvents(name string, kbd *evdev.InputDevice, replyTo chan Message, kbdLost chan string) {
 	for {
 		events, err := kbd.Read()
 		if err != nil || len(events) == 0 {
-			//keyboards := scanDevices()
-			//break
-			// TODO
+			fmt.Printf("Keyboard %s lost...\n", kbd.Name)
+			kbdLost <- name
+			return
 		}
 		replyTo <- Message{Device: kbd, Events: events}
 	}
