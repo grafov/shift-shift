@@ -16,7 +16,7 @@ import "C"
 import (
 	"flag"
 	"fmt"
-	evdev "github.com/gvalkov/golang-evdev"
+    "github.com/gvalkov/golang-evdev/evdev"
 	"os"
 	// "os/exec"
 	"os/signal"
@@ -86,7 +86,7 @@ func scanDevices(mbox chan Message) {
 		case input := <-kbdLost:
 			delete(keyboards, input)
 		default:
-			devnames, err := evdev.ListInputDevices("/dev/input/event*")
+			devnames, err := evdev.ListInputDevicePaths("/dev/input/event*")
 			if err == nil && len(devnames) > 0 {
 				for _, input := range devnames {
 					dev, err := evdev.Open(input)
