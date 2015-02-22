@@ -1,10 +1,10 @@
-What is and why?
-================
+What is it and why?
+===================
 
-This utility switch keyboard groups in X Window in a way most
-ergonomic on my taste. I think switch keyboard layouts must be:
+This utility switches keyboard groups in X Window in a way most
+ergonomic on my taste. I think keys to switch keyboard layouts must be:
 
-1. By dedicated keys.
+1. Dedicated.
 2. Non modal.
 
 If you often switch different keyboard layouts (it real use case
