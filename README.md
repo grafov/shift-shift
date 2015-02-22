@@ -48,7 +48,7 @@ but I lazy to do it as it already works as I need.
 
 I not well know programming for X so used simple and crude ways to do things.
 Program use udev library and requires root privileges for reading `/dev/input/event*`.
-If you know right way how to do it without root then write me.
+If you know right way how to do it without root then let me advice please.
 
 Install
 =======
@@ -65,10 +65,23 @@ Of course you need Go environment installed for build.
 And as program uses Xlib through cgo interface then you need `xlib-devel`
 installed.
 
-Run
-====
+Usage
+=====
 
-Run somewhere after X started with your account. I use `~/.bash_profile` for
+     $ sudo shift-shift -h
+     Usage of shift-shift:
+       -list=false: list all devices listened by evdev
+       -match="keyboard": string used to match keyboard device
+       -print=false: print pressed keys
+       -quiet=false: be silent
+
+On start program find devices where name contains "keyboard" string. It assume there
+are keyboard devices. You may customize this by set your own string with `-match` arg.
+Got list of all input devices with `list` arg.
+
+**Note:** you need root for operations with `/dev/input/*` so run it with `sudo` or similar tool.
+
+For autostart run it somewhere after X started with your account. I use `~/.bash_profile` for
 this.
 
     sudo pidof shift-shift >/dev/null || sudo shift-shift -quiet >/dev/null &
