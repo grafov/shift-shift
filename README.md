@@ -53,7 +53,7 @@ If you know right way how to do it without root then write me.
 Install
 =======
 
-Binding of `udev` for Go used so before build you need:
+Binding of `evdev` for Go used so before build you need:
 
     go get github.com/gvalkov/golang-evdev/evdev
 
