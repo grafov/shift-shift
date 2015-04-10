@@ -9,7 +9,7 @@ ergonomic on my taste. I think keys to switch keyboard layouts must be:
 
 If you often switch different keyboard layouts (it real use case
 for all who speak not only English) then dedicated keys more easy
-to type than key combos. Old Soviet computers for example have
+to type than key combos.  Old Soviet computers for example had
 dedicated key RUS/LAT for switch between Latin and Cyrillic. Sadly
 in modern English-oriented keyboards there are no dedicated keys
 for switch layouts.
@@ -28,8 +28,8 @@ keys. But when you press Shift with other keys then it applied as
 modifier key.
 
 I not found out of the box solution how to setup X to use Shifts as
-standalone keys. Also I used two keyboards in same time and was need
-to switch layouts on both of them. So I wrote this utility.
+standalone keys. Also I used two keyboards in same time (notebok internal and USB plugged) 
+and was need to switch layouts on both of them. So I wrote this utility.
 
 So `shift-shift` has features:
 
