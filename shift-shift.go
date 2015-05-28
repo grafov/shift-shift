@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gvalkov/golang-evdev/evdev"
+	"github.com/gvalkov/golang-evdev"
 	// "os/exec"
 	"os/signal"
 	"strings"
