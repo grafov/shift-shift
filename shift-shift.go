@@ -17,12 +17,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
-
-	"github.com/gvalkov/golang-evdev"
-	// "os/exec"
 	"os/signal"
 	"strings"
 	"time"
+
+	"github.com/gvalkov/golang-evdev"
 )
 
 // Объединение данных для удобства передачи по каналу.
@@ -33,10 +32,12 @@ type Message struct {
 
 func main() {
 	var (
-		listDevices = flag.Bool("list", false, "list all devices listened by evdev")
-		printMode   = flag.Bool("print", false, "print pressed keys")
-		quietMode   = flag.Bool("quiet", false, "be silent")
-		deviceMatch = flag.String("match", "keyboard", "string used to match keyboard device")
+		listDevices  = flag.Bool("list", false, "list all devices listened by evdev")
+		printMode    = flag.Bool("print", false, "print pressed keys")
+		quietMode    = flag.Bool("quiet", false, "be silent")
+		deviceMatch  = flag.String("match", "keyboard", "string used to match keyboard device")
+		keysymFirst  = flag.String("first", "LEFTSHIFT", "key used for switcing on first xkb group")
+		keysymSecond = flag.String("second", "RIGHTSHIFT", "key used for switcing on second xkb group")
 	)
 	flag.Parse()
 
@@ -48,9 +49,32 @@ func main() {
 			fmt.Printf("[%s] %s\n", devicePath, device.Name)
 		}
 	} else {
-		go listenKeyboards(*printMode, *quietMode, *deviceMatch)
+		keyFirst, err := getKeyCode(*keysymFirst)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+
+		keySecond, err := getKeyCode(*keysymSecond)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+
+		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, *deviceMatch)
 		<-terminate
 	}
+}
+
+// Возвращает keycode по текстому представлению клавиши.
+func getKeyCode(keysym string) (uint16, error) {
+	for evdevKeyCode, evdevKeySym := range evdev.KEY {
+		if evdevKeySym == "KEY_"+keysym {
+			return uint16(evdevKeyCode), nil
+		}
+	}
+
+	return 0, fmt.Errorf("keycode for keysym %s not found", keysym)
 }
 
 // Переключалка групп Xorg.
@@ -131,8 +155,11 @@ func scanDevices(mbox chan Message, deviceMatch string) {
 }
 
 // Принимает события ото всех клавиатур.
-func listenKeyboards(printMode, quietMode bool, deviceMatch string) {
-	var lshift, rshift, lshift_started, rshift_started bool
+func listenKeyboards(
+	keyFirst uint16, keySecond uint16,
+	printMode, quietMode bool, deviceMatch string,
+) {
+	var groupFirst, groupSecond, groupFirstEnabled, groupSecondEnabled bool
 
 	inbox := make(chan Message, 8)
 	kbdLost := make(chan bool, 8)
@@ -147,25 +174,25 @@ func listenKeyboards(printMode, quietMode bool, deviceMatch string) {
 				switch ev.Type {
 				case evdev.EV_SYN:
 					// группа получена
-					if (lshift && !rshift) || (rshift && !lshift) {
-						lshift_started = false
-						rshift_started = false
+					if (groupFirst && !groupSecond) || (groupSecond && !groupFirst) {
+						groupFirstEnabled = false
+						groupSecondEnabled = false
 					} else {
 						continue
 					}
-					if lshift {
+					if groupFirst {
 						switchXkbGroup(C.XkbGroup1Index)
 						if !quietMode {
-							fmt.Printf("Left Shift at %s: English\n", msg.Device.Name)
+							fmt.Printf("Switch to first group at %s\n", msg.Device.Name)
 						}
-					} else if rshift {
+					} else if groupSecond {
 						switchXkbGroup(C.XkbGroup2Index)
 						if !quietMode {
-							fmt.Printf("Right Shift at %s: Русский\n", msg.Device.Name)
+							fmt.Printf("Switch to second group at %s\n", msg.Device.Name)
 						}
 					}
-					lshift = false
-					rshift = false
+					groupFirst = false
+					groupSecond = false
 				case evdev.EV_KEY:
 					// обработка нажатий
 					if printMode {
@@ -174,27 +201,27 @@ func listenKeyboards(printMode, quietMode bool, deviceMatch string) {
 					switch ev.Value {
 					case 1: // key down
 						switch ev.Code {
-						case evdev.KEY_LEFTSHIFT:
-							lshift_started = true
-						case evdev.KEY_RIGHTSHIFT:
-							rshift_started = true
+						case keyFirst:
+							groupFirstEnabled = true
+						case keySecond:
+							groupSecondEnabled = true
 						default: // other keys
-							lshift_started = false
-							rshift_started = false
+							groupFirstEnabled = false
+							groupSecondEnabled = false
 						}
 					case 0: // key up
 						switch ev.Code {
-						case evdev.KEY_LEFTSHIFT:
-							if lshift_started && !rshift_started {
-								lshift = true
+						case keyFirst:
+							if groupFirstEnabled && !groupSecondEnabled {
+								groupFirst = true
 							}
-						case evdev.KEY_RIGHTSHIFT:
-							if rshift_started && !lshift_started {
-								rshift = true
+						case keySecond:
+							if groupSecondEnabled && !groupFirstEnabled {
+								groupSecond = true
 							}
 						default:
-							lshift_started = false
-							rshift_started = false
+							groupFirstEnabled = false
+							groupSecondEnabled = false
 						}
 					}
 				}
