@@ -1,15 +1,16 @@
 What is it and why?
 ===================
 
-This utility switches keyboard groups in X Window in a way most
-ergonomic on my taste. I think keys to switch keyboard layouts must be:
+This utility allow you switch keyboard groups in X Window in the most
+ergonomic way (on my view of ergonomic UI :). 
+I think keys for switching keyboard layouts should be:
 
 1. Dedicated.
 2. Non modal.
 
-If you often switch different keyboard layouts (it real use case
-for all who speak not only English) then dedicated keys more easy
-to type than key combos.  Old Soviet computers for example had
+If you are often switch keyboard layouts (it real use case
+for those who speaking not only English) then dedicated keys are more easy
+for typing than key combos.  Old Soviet computers for example had
 dedicated key RUS/LAT for switch between Latin and Cyrillic. Sadly
 in modern English-oriented keyboards there are no dedicated keys
 for switch layouts.
