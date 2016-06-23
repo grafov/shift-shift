@@ -1,7 +1,7 @@
 What is it and why?
 ===================
 
-This utility allow you switch keyboard groups in X Window in the most
+This utility allows you switch keyboard groups in X Window in the most
 ergonomic way (on my view of ergonomic UI :). 
 I think keys for switching keyboard layouts should be:
 
