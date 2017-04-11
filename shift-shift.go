@@ -16,6 +16,7 @@ import "C"
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -39,6 +40,7 @@ func main() {
 		keysymFirst  = flag.String("first", "LEFTSHIFT", "key used for switcing on first xkb group")
 		keysymSecond = flag.String("second", "RIGHTSHIFT", "key used for switcing on second xkb group")
 	)
+
 	flag.Parse()
 
 	terminate := make(chan os.Signal)
@@ -46,22 +48,23 @@ func main() {
 
 	if *listDevices {
 		for devicePath, device := range getInputDevices() {
-			fmt.Printf("[%s] %s\n", devicePath, device.Name)
+			fmt.Printf("%s %s\n", devicePath, device.Name)
 		}
 	} else {
 		keyFirst, err := getKeyCode(*keysymFirst)
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
 
 		keySecond, err := getKeyCode(*keysymSecond)
 		if err != nil {
-			fmt.Println(err.Error())
+			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
 
 		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, *deviceMatch)
+
 		<-terminate
 	}
 }
@@ -86,18 +89,20 @@ func switchXkbGroup(group uint) {
 	minorVers = C.XkbMinorVersion
 	display := C.XkbOpenDisplay(nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason)
 	if display == nil {
-		fmt.Printf("Can't open X display %s", C.GoString(C.XDisplayName(nil)))
+		log.Printf("unable to open X display %s", C.GoString(C.XDisplayName(nil)))
+
 		switch xkbReason {
 		case C.XkbOD_BadServerVersion:
 		case C.XkbOD_BadLibraryVersion:
-			println("incompatible versions of client and server XKB libraries")
+			log.Printf("incompatible versions of client and server XKB libraries")
 		case C.XkbOD_ConnectionRefused:
-			println("connection to X server refused")
+			log.Printf("connection to X server refused")
 		case C.XkbOD_NonXkbServer:
-			println("XKB extension is not present")
+			log.Printf("XKB extension is not present")
 		default:
-			println("unknown error from XkbOpenDisplay: %d", xkbReason)
+			log.Printf("unknown error from XkbOpenDisplay: %d", xkbReason)
 		}
+
 		return
 	}
 
@@ -113,7 +118,8 @@ func getInputDevices() map[string]*evdev.InputDevice {
 		for _, devicePath := range devicePaths {
 			device, err := evdev.Open(devicePath)
 			if err != nil {
-				fmt.Printf("Can't open %s\n", devicePath)
+				log.Printf("unable to open device %s: %s", devicePath, err)
+
 				continue
 			}
 
@@ -125,7 +131,7 @@ func getInputDevices() map[string]*evdev.InputDevice {
 }
 
 // Обнаруживает устройства, похожие на клавиатуры.
-func scanDevices(mbox chan Message, deviceMatch string) {
+func scanDevices(mbox chan Message, deviceMatch string, quietMode bool) {
 	var keyboards map[string]*evdev.InputDevice = make(map[string]*evdev.InputDevice)
 
 	kbdLost := make(chan string, 8)
@@ -138,17 +144,24 @@ func scanDevices(mbox chan Message, deviceMatch string) {
 			for devicePath, device := range getInputDevices() {
 				if strings.Contains(strings.ToLower(device.Name), strings.ToLower(deviceMatch)) {
 					if _, ok := keyboards[devicePath]; !ok {
-						fmt.Printf("Keyboard found as %s [%s]\n", device.Name, devicePath)
+						if !quietMode {
+							log.Printf(
+								"new keyboard at %s: %s",
+								devicePath, device.Name,
+							)
+						}
+
 						if mbox != nil {
 							keyboards[devicePath] = device
-							go listenEvents(devicePath, device, mbox, kbdLost)
-							// TODO эти гвозди надо выковырять
-							// exec.Command("sudo", "-u", "$USER", "setxkbmap", "-layout", "us+typo,ru:2+typo", "-option", "lv3:ralt_switch").Start()
-							// exec.Command("sudo", "-u", "$USER", "xset", "r", "rate", "300", "55").Start()
+
+							go listenEvents(
+								devicePath, device, mbox, kbdLost, quietMode,
+							)
 						}
 					}
 				}
 			}
+
 			time.Sleep(4 * time.Second)
 		}
 	}
@@ -165,7 +178,7 @@ func listenKeyboards(
 	kbdLost := make(chan bool, 8)
 	kbdLost <- true // init
 
-	go scanDevices(inbox, deviceMatch)
+	go scanDevices(inbox, deviceMatch, quietMode)
 
 	for {
 		select {
@@ -180,15 +193,16 @@ func listenKeyboards(
 					} else {
 						continue
 					}
+
 					if groupFirst {
 						switchXkbGroup(C.XkbGroup1Index)
 						if !quietMode {
-							fmt.Printf("Switch to first group at %s\n", msg.Device.Name)
+							log.Printf("switching to first group at %s", msg.Device.Name)
 						}
 					} else if groupSecond {
 						switchXkbGroup(C.XkbGroup2Index)
 						if !quietMode {
-							fmt.Printf("Switch to second group at %s\n", msg.Device.Name)
+							log.Printf("switching to second group at %s", msg.Device.Name)
 						}
 					}
 					groupFirst = false
@@ -196,8 +210,12 @@ func listenKeyboards(
 				case evdev.EV_KEY:
 					// обработка нажатий
 					if printMode {
-						fmt.Printf("%s: %v %v %d\n", msg.Device.Name, ev.Type, ev.Code, ev.Value)
+						log.Printf(
+							"%s: %v %v %d",
+							msg.Device.Name, ev.Type, ev.Code, ev.Value,
+						)
 					}
+
 					switch ev.Value {
 					case 1: // key down
 						switch ev.Code {
@@ -230,15 +248,24 @@ func listenKeyboards(
 	}
 }
 
-// Слушает события и возвращает их в поток управления.
-func listenEvents(name string, kbd *evdev.InputDevice, replyTo chan Message, kbdLost chan string) {
+func listenEvents(
+	name string,
+	kbd *evdev.InputDevice,
+	replyTo chan Message,
+	kbdLost chan string,
+	quietMode bool,
+) {
 	for {
 		events, err := kbd.Read()
 		if err != nil || len(events) == 0 {
-			fmt.Printf("Keyboard %s lost...\n", kbd.Name)
+			if !quietMode {
+				log.Printf("keyboard %s disconnected", kbd.Name)
+			}
+
 			kbdLost <- name
 			return
 		}
+
 		replyTo <- Message{Device: kbd, Events: events}
 	}
 }
