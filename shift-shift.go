@@ -19,7 +19,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/gvalkov/golang-evdev"
@@ -36,7 +36,7 @@ func main() {
 		listDevices  = flag.Bool("list", false, "list all devices listened by evdev")
 		printMode    = flag.Bool("print", false, "print pressed keys")
 		quietMode    = flag.Bool("quiet", false, "be silent")
-		deviceMatch  = flag.String("match", "keyboard", "string used to match keyboard device")
+		deviceMatch  = flag.String("match", "keyboard", "regexp used to match keyboard device")
 		keysymFirst  = flag.String("first", "LEFTSHIFT", "key used for switcing on first xkb group")
 		keysymSecond = flag.String("second", "RIGHTSHIFT", "key used for switcing on second xkb group")
 	)
@@ -63,7 +63,17 @@ func main() {
 			os.Exit(1)
 		}
 
-		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, *deviceMatch)
+		reDeviceMatch, err := regexp.Compile(*deviceMatch)
+		if err != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"unable to compile regexp for matching devices: %s\n",
+				err,
+			)
+			os.Exit(1)
+		}
+
+		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, reDeviceMatch)
 
 		<-terminate
 	}
@@ -131,7 +141,7 @@ func getInputDevices() map[string]*evdev.InputDevice {
 }
 
 // Обнаруживает устройства, похожие на клавиатуры.
-func scanDevices(mbox chan Message, deviceMatch string, quietMode bool) {
+func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool) {
 	var keyboards map[string]*evdev.InputDevice = make(map[string]*evdev.InputDevice)
 
 	kbdLost := make(chan string, 8)
@@ -142,7 +152,7 @@ func scanDevices(mbox chan Message, deviceMatch string, quietMode bool) {
 			delete(keyboards, input)
 		default:
 			for devicePath, device := range getInputDevices() {
-				if strings.Contains(strings.ToLower(device.Name), strings.ToLower(deviceMatch)) {
+				if deviceMatch.MatchString(device.Name) {
 					if _, ok := keyboards[devicePath]; !ok {
 						if !quietMode {
 							log.Printf(
@@ -170,7 +180,7 @@ func scanDevices(mbox chan Message, deviceMatch string, quietMode bool) {
 // Принимает события ото всех клавиатур.
 func listenKeyboards(
 	keyFirst uint16, keySecond uint16,
-	printMode, quietMode bool, deviceMatch string,
+	printMode, quietMode bool, deviceMatch *regexp.Regexp,
 ) {
 	var groupFirst, groupSecond, groupFirstEnabled, groupSecondEnabled bool
 
