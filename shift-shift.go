@@ -73,7 +73,19 @@ func main() {
 			os.Exit(1)
 		}
 
-		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, reDeviceMatch)
+		display, err := openDisplay()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to open X display: %s\n", err)
+			os.Exit(1)
+		}
+
+		defer C.XCloseDisplay(display)
+
+		go listenKeyboards(
+			display, keyFirst, keySecond,
+			*printMode, *quietMode,
+			reDeviceMatch,
+		)
 
 		<-terminate
 	}
@@ -90,34 +102,36 @@ func getKeyCode(keysym string) (uint16, error) {
 	return 0, fmt.Errorf("keycode for keysym %s not found", keysym)
 }
 
-// Переключалка групп Xorg.
-func switchXkbGroup(group uint) {
+func openDisplay() (*C.Display, error) {
 	var xkbEventType, xkbError, xkbReason C.int
 	var majorVers, minorVers C.int
 
 	majorVers = C.XkbMajorVersion
 	minorVers = C.XkbMinorVersion
-	display := C.XkbOpenDisplay(nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason)
-	if display == nil {
-		log.Printf("unable to open X display %s", C.GoString(C.XDisplayName(nil)))
 
+	display := C.XkbOpenDisplay(
+		nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason,
+	)
+	if display == nil {
 		switch xkbReason {
 		case C.XkbOD_BadServerVersion:
 		case C.XkbOD_BadLibraryVersion:
-			log.Printf("incompatible versions of client and server XKB libraries")
+			return nil, fmt.Errorf("incompatible versions of client and server XKB libraries")
 		case C.XkbOD_ConnectionRefused:
-			log.Printf("connection to X server refused")
+			return nil, fmt.Errorf("connection to X server refused")
 		case C.XkbOD_NonXkbServer:
-			log.Printf("XKB extension is not present")
+			return nil, fmt.Errorf("XKB extension is not present")
 		default:
-			log.Printf("unknown error from XkbOpenDisplay: %d", xkbReason)
+			return nil, fmt.Errorf("unknown error from XkbOpenDisplay: %d", xkbReason)
 		}
-
-		return
 	}
 
+	return display, nil
+}
+
+// Переключалка групп Xorg.
+func switchXkbGroup(display *C.Display, group uint) {
 	C.XkbLockGroup(display, C.XkbUseCoreKbd, C.uint(group))
-	C.XCloseDisplay(display)
 }
 
 func getInputDevices() map[string]*evdev.InputDevice {
@@ -179,6 +193,7 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool) 
 
 // Принимает события ото всех клавиатур.
 func listenKeyboards(
+	display *C.Display,
 	keyFirst uint16, keySecond uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
 ) {
@@ -220,12 +235,12 @@ func listenKeyboards(
 					switch ev.Code {
 					case keyFirst:
 						if groupFirst && !groupSecond {
-							switchXkbGroup(C.XkbGroup1Index)
+							switchXkbGroup(display, C.XkbGroup1Index)
 							groupFirst = false
 						}
 					case keySecond:
 						if groupSecond && !groupFirst {
-							switchXkbGroup(C.XkbGroup2Index)
+							switchXkbGroup(display, C.XkbGroup2Index)
 							groupSecond = false
 						}
 					default:
