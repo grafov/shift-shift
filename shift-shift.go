@@ -182,7 +182,7 @@ func listenKeyboards(
 	keyFirst uint16, keySecond uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
 ) {
-	var groupFirst, groupSecond, groupFirstEnabled, groupSecondEnabled bool
+	var groupFirst, groupSecond bool
 
 	inbox := make(chan Message, 8)
 	kbdLost := make(chan bool, 8)
@@ -194,63 +194,43 @@ func listenKeyboards(
 		select {
 		case msg := <-inbox:
 			for _, ev := range msg.Events {
-				switch ev.Type {
-				case evdev.EV_SYN:
-					// группа получена
-					if (groupFirst && !groupSecond) || (groupSecond && !groupFirst) {
-						groupFirstEnabled = false
-						groupSecondEnabled = false
-					} else {
-						continue
-					}
+				if ev.Type != evdev.EV_KEY {
+					continue
+				}
 
-					if groupFirst {
-						switchXkbGroup(C.XkbGroup1Index)
-						if !quietMode {
-							log.Printf("switching to first group at %s", msg.Device.Name)
-						}
-					} else if groupSecond {
-						switchXkbGroup(C.XkbGroup2Index)
-						if !quietMode {
-							log.Printf("switching to second group at %s", msg.Device.Name)
-						}
-					}
-					groupFirst = false
-					groupSecond = false
-				case evdev.EV_KEY:
-					// обработка нажатий
-					if printMode {
-						log.Printf(
-							"%s: %v %v %d",
-							msg.Device.Name, ev.Type, ev.Code, ev.Value,
-						)
-					}
+				if printMode {
+					log.Printf(
+						"%s: %v %v %d",
+						msg.Device.Name, ev.Type, ev.Code, ev.Value,
+					)
+				}
 
-					switch ev.Value {
-					case 1: // key down
-						switch ev.Code {
-						case keyFirst:
-							groupFirstEnabled = true
-						case keySecond:
-							groupSecondEnabled = true
-						default: // other keys
-							groupFirstEnabled = false
-							groupSecondEnabled = false
+				switch ev.Value {
+				case 1: // key down
+					switch ev.Code {
+					case keyFirst:
+						groupFirst = true
+					case keySecond:
+						groupSecond = true
+					default: // other keys
+						groupFirst = false
+						groupSecond = false
+					}
+				case 0: // key up
+					switch ev.Code {
+					case keyFirst:
+						if groupFirst && !groupSecond {
+							switchXkbGroup(C.XkbGroup1Index)
+							groupFirst = false
 						}
-					case 0: // key up
-						switch ev.Code {
-						case keyFirst:
-							if groupFirstEnabled && !groupSecondEnabled {
-								groupFirst = true
-							}
-						case keySecond:
-							if groupSecondEnabled && !groupFirstEnabled {
-								groupSecond = true
-							}
-						default:
-							groupFirstEnabled = false
-							groupSecondEnabled = false
+					case keySecond:
+						if groupSecond && !groupFirst {
+							switchXkbGroup(C.XkbGroup2Index)
+							groupSecond = false
 						}
+					default:
+						groupFirst = false
+						groupSecond = false
 					}
 				}
 			}
