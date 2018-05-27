@@ -73,7 +73,19 @@ func main() {
 			os.Exit(1)
 		}
 
-		go listenKeyboards(keyFirst, keySecond, *printMode, *quietMode, reDeviceMatch)
+		display, err := openDisplay()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unable to open X display: %s\n", err)
+			os.Exit(1)
+		}
+
+		defer C.XCloseDisplay(display)
+
+		go listenKeyboards(
+			display, keyFirst, keySecond,
+			*printMode, *quietMode,
+			reDeviceMatch,
+		)
 
 		<-terminate
 	}
@@ -90,34 +102,36 @@ func getKeyCode(keysym string) (uint16, error) {
 	return 0, fmt.Errorf("keycode for keysym %s not found", keysym)
 }
 
-// Переключалка групп Xorg.
-func switchXkbGroup(group uint) {
+func openDisplay() (*C.Display, error) {
 	var xkbEventType, xkbError, xkbReason C.int
 	var majorVers, minorVers C.int
 
 	majorVers = C.XkbMajorVersion
 	minorVers = C.XkbMinorVersion
-	display := C.XkbOpenDisplay(nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason)
-	if display == nil {
-		log.Printf("unable to open X display %s", C.GoString(C.XDisplayName(nil)))
 
+	display := C.XkbOpenDisplay(
+		nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason,
+	)
+	if display == nil {
 		switch xkbReason {
 		case C.XkbOD_BadServerVersion:
 		case C.XkbOD_BadLibraryVersion:
-			log.Printf("incompatible versions of client and server XKB libraries")
+			return nil, fmt.Errorf("incompatible versions of client and server XKB libraries")
 		case C.XkbOD_ConnectionRefused:
-			log.Printf("connection to X server refused")
+			return nil, fmt.Errorf("connection to X server refused")
 		case C.XkbOD_NonXkbServer:
-			log.Printf("XKB extension is not present")
+			return nil, fmt.Errorf("XKB extension is not present")
 		default:
-			log.Printf("unknown error from XkbOpenDisplay: %d", xkbReason)
+			return nil, fmt.Errorf("unknown error from XkbOpenDisplay: %d", xkbReason)
 		}
-
-		return
 	}
 
+	return display, nil
+}
+
+// Переключалка групп Xorg.
+func switchXkbGroup(display *C.Display, group uint) {
 	C.XkbLockGroup(display, C.XkbUseCoreKbd, C.uint(group))
-	C.XCloseDisplay(display)
 }
 
 func getInputDevices() map[string]*evdev.InputDevice {
@@ -179,10 +193,11 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool) 
 
 // Принимает события ото всех клавиатур.
 func listenKeyboards(
+	display *C.Display,
 	keyFirst uint16, keySecond uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
 ) {
-	var groupFirst, groupSecond, groupFirstEnabled, groupSecondEnabled bool
+	var groupFirst, groupSecond bool
 
 	inbox := make(chan Message, 8)
 	kbdLost := make(chan bool, 8)
@@ -194,63 +209,43 @@ func listenKeyboards(
 		select {
 		case msg := <-inbox:
 			for _, ev := range msg.Events {
-				switch ev.Type {
-				case evdev.EV_SYN:
-					// группа получена
-					if (groupFirst && !groupSecond) || (groupSecond && !groupFirst) {
-						groupFirstEnabled = false
-						groupSecondEnabled = false
-					} else {
-						continue
-					}
+				if ev.Type != evdev.EV_KEY {
+					continue
+				}
 
-					if groupFirst {
-						switchXkbGroup(C.XkbGroup1Index)
-						if !quietMode {
-							log.Printf("switching to first group at %s", msg.Device.Name)
-						}
-					} else if groupSecond {
-						switchXkbGroup(C.XkbGroup2Index)
-						if !quietMode {
-							log.Printf("switching to second group at %s", msg.Device.Name)
-						}
-					}
-					groupFirst = false
-					groupSecond = false
-				case evdev.EV_KEY:
-					// обработка нажатий
-					if printMode {
-						log.Printf(
-							"%s: %v %v %d",
-							msg.Device.Name, ev.Type, ev.Code, ev.Value,
-						)
-					}
+				if printMode {
+					log.Printf(
+						"%s: %v %v %d",
+						msg.Device.Name, ev.Type, ev.Code, ev.Value,
+					)
+				}
 
-					switch ev.Value {
-					case 1: // key down
-						switch ev.Code {
-						case keyFirst:
-							groupFirstEnabled = true
-						case keySecond:
-							groupSecondEnabled = true
-						default: // other keys
-							groupFirstEnabled = false
-							groupSecondEnabled = false
+				switch ev.Value {
+				case 1: // key down
+					switch ev.Code {
+					case keyFirst:
+						groupFirst = true
+					case keySecond:
+						groupSecond = true
+					default: // other keys
+						groupFirst = false
+						groupSecond = false
+					}
+				case 0: // key up
+					switch ev.Code {
+					case keyFirst:
+						if groupFirst && !groupSecond {
+							switchXkbGroup(display, C.XkbGroup1Index)
+							groupFirst = false
 						}
-					case 0: // key up
-						switch ev.Code {
-						case keyFirst:
-							if groupFirstEnabled && !groupSecondEnabled {
-								groupFirst = true
-							}
-						case keySecond:
-							if groupSecondEnabled && !groupFirstEnabled {
-								groupSecond = true
-							}
-						default:
-							groupFirstEnabled = false
-							groupSecondEnabled = false
+					case keySecond:
+						if groupSecond && !groupFirst {
+							switchXkbGroup(display, C.XkbGroup2Index)
+							groupSecond = false
 						}
+					default:
+						groupFirst = false
+						groupSecond = false
 					}
 				}
 			}
