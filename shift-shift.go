@@ -131,7 +131,14 @@ func openDisplay() (*C.Display, error) {
 
 // Переключалка групп Xorg.
 func switchXkbGroup(display *C.Display, group uint) {
-	C.XkbLockGroup(display, C.XkbUseCoreKbd, C.uint(group))
+	result := C.XkbLockGroup(display, C.XkbUseCoreKbd, C.uint(group))
+	if result != 1 {
+		log.Println("unable to send lock group request to X11")
+		return
+	}
+
+	// immideately output events buffer
+	C.XFlush(display)
 }
 
 func getInputDevices() map[string]*evdev.InputDevice {
