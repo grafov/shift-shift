@@ -39,6 +39,7 @@ func main() {
 		deviceMatch  = flag.String("match", "keyboard", "regexp used to match keyboard device")
 		keysymFirst  = flag.String("first", "LEFTSHIFT", "key used for switcing on first xkb group")
 		keysymSecond = flag.String("second", "RIGHTSHIFT", "key used for switcing on second xkb group")
+		scanOnce     = flag.Bool("scan-once", false, "scan for devices only at startup (less power consumption)")
 	)
 
 	flag.Parse()
@@ -84,7 +85,7 @@ func main() {
 		go listenKeyboards(
 			display, keyFirst, keySecond,
 			*printMode, *quietMode,
-			reDeviceMatch,
+			reDeviceMatch, *scanOnce,
 		)
 
 		<-terminate
@@ -162,7 +163,7 @@ func getInputDevices() map[string]*evdev.InputDevice {
 }
 
 // Обнаруживает устройства, похожие на клавиатуры.
-func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool) {
+func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool, scanOnce bool) {
 	var keyboards map[string]*evdev.InputDevice = make(map[string]*evdev.InputDevice)
 
 	kbdLost := make(chan string, 8)
@@ -193,6 +194,10 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool) 
 				}
 			}
 
+			if scanOnce {
+				return
+			}
+
 			time.Sleep(4 * time.Second)
 		}
 	}
@@ -203,6 +208,7 @@ func listenKeyboards(
 	display *C.Display,
 	keyFirst uint16, keySecond uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
+	scanOnce bool,
 ) {
 	var groupFirst, groupSecond bool
 
@@ -210,7 +216,7 @@ func listenKeyboards(
 	kbdLost := make(chan bool, 8)
 	kbdLost <- true // init
 
-	go scanDevices(inbox, deviceMatch, quietMode)
+	go scanDevices(inbox, deviceMatch, quietMode, scanOnce)
 
 	for {
 		select {
