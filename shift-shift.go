@@ -191,6 +191,11 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool, 
 							)
 						}
 					}
+				} else {
+					err := device.File.Close()
+					if err != nil {
+						log.Printf("unable to close device %q: %s", device.Name, err)
+					}
 				}
 			}
 
