@@ -56,7 +56,7 @@ Install
 
 Binding of `evdev` for Go used so before build you need:
 
-    go get github.com/kovetskiy/golang-evdev/evdev
+    go get github.com/gvalkov/golang-evdev/evdev
 
 Then as usual:
 

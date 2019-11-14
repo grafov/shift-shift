@@ -22,7 +22,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/kovetskiy/golang-evdev"
+	"github.com/gvalkov/golang-evdev"
 )
 
 // Объединение данных для удобства передачи по каналу.
