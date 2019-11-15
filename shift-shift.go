@@ -41,7 +41,7 @@ func main() {
 		keysymSecond  = flag.String("second", "RIGHTSHIFT", "key used for switching on second xkb group")
 		scanOnce      = flag.Bool("scan-once", false, "scan for devices only at startup (less power consumption)")
 		dblKeystroke  = flag.Bool("double-keystroke", false, "require pressing the same key twice to switch the layout")
-		dblKeyTimeout = flag.Int("second-keystroke-timeout", 500, "second keystroke timeout in milliseconds")
+		dblKeyTimeout = flag.Int("double-keystroke-timeout", 500, "second keystroke timeout in milliseconds")
 	)
 
 	flag.Parse()
