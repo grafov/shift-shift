@@ -250,13 +250,13 @@ func listenKeyboards(
 					switch ev.Code {
 					case keyFirst:
 						if dblKeystroke {
-							t, groupFirst = pressedBefore(t, dblKeyTimeout)
+							t, groupFirst = checkTimeout(t, dblKeyTimeout)
 						} else {
 							groupFirst = true
 						}
 					case keySecond:
 						if dblKeystroke {
-							t, groupSecond = pressedBefore(t, dblKeyTimeout)
+							t, groupSecond = checkTimeout(t, dblKeyTimeout)
 						} else {
 							groupSecond = true
 						}
@@ -308,7 +308,9 @@ func listenEvents(
 	}
 }
 
-func pressedBefore(t *time.Timer, timeout int) (*time.Timer, bool) {
+// Checks if the key was pressed before the timer was expired
+// Resets expired timer
+func checkTimeout(t *time.Timer, timeout int) (*time.Timer, bool) {
 	if t.Stop() {
 		return t, true
 	}
