@@ -225,7 +225,7 @@ func listenKeyboards(
 	kbdLost := make(chan bool, 8)
 	kbdLost <- true // init
 	if dblKeystroke {
-		t = time.NewTimer(time.Duration(dblKeyTimeout * 1000 * 1000))
+		t = time.NewTimer(time.Duration(dblKeyTimeout) * time.Millisecond)
 	}
 
 	go scanDevices(inbox, deviceMatch, quietMode, scanOnce)
@@ -314,6 +314,6 @@ func checkTimeout(t *time.Timer, timeout int) (*time.Timer, bool) {
 	if t.Stop() {
 		return t, true
 	}
-	t.Reset(time.Duration(timeout * 1000 * 1000))
+	t.Reset(time.Duration(timeout) * time.Millisecond)
 	return t, false
 }
