@@ -33,13 +33,15 @@ type Message struct {
 
 func main() {
 	var (
-		listDevices  = flag.Bool("list", false, "list all devices listened by evdev")
-		printMode    = flag.Bool("print", false, "print pressed keys")
-		quietMode    = flag.Bool("quiet", false, "be silent")
-		deviceMatch  = flag.String("match", "keyboard", "regexp used to match keyboard device")
-		keysymFirst  = flag.String("first", "LEFTSHIFT", "key used for switcing on first xkb group")
-		keysymSecond = flag.String("second", "RIGHTSHIFT", "key used for switcing on second xkb group")
-		scanOnce     = flag.Bool("scan-once", false, "scan for devices only at startup (less power consumption)")
+		listDevices   = flag.Bool("list", false, "list all devices listened by evdev")
+		printMode     = flag.Bool("print", false, "print pressed keys")
+		quietMode     = flag.Bool("quiet", false, "be silent")
+		deviceMatch   = flag.String("match", "keyboard", "regexp used to match keyboard device")
+		keysymFirst   = flag.String("first", "LEFTSHIFT", "key used for switching on first xkb group")
+		keysymSecond  = flag.String("second", "RIGHTSHIFT", "key used for switching on second xkb group")
+		scanOnce      = flag.Bool("scan-once", false, "scan for devices only at startup (less power consumption)")
+		dblKeystroke  = flag.Bool("double-keystroke", false, "require pressing the same key twice to switch the layout")
+		dblKeyTimeout = flag.Int("double-keystroke-timeout", 500, "second keystroke timeout in milliseconds")
 	)
 
 	flag.Parse()
@@ -86,6 +88,7 @@ func main() {
 			display, keyFirst, keySecond,
 			*printMode, *quietMode,
 			reDeviceMatch, *scanOnce,
+			*dblKeystroke, *dblKeyTimeout,
 		)
 
 		<-terminate
@@ -213,13 +216,17 @@ func listenKeyboards(
 	display *C.Display,
 	keyFirst uint16, keySecond uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
-	scanOnce bool,
+	scanOnce bool, dblKeystroke bool, dblKeyTimeout int,
 ) {
 	var groupFirst, groupSecond bool
+	var t *time.Timer
 
 	inbox := make(chan Message, 8)
 	kbdLost := make(chan bool, 8)
 	kbdLost <- true // init
+	if dblKeystroke {
+		t = time.NewTimer(time.Duration(dblKeyTimeout) * time.Millisecond)
+	}
 
 	go scanDevices(inbox, deviceMatch, quietMode, scanOnce)
 
@@ -242,9 +249,17 @@ func listenKeyboards(
 				case 1: // key down
 					switch ev.Code {
 					case keyFirst:
-						groupFirst = true
+						if dblKeystroke {
+							t, groupFirst = checkTimeout(t, dblKeyTimeout)
+						} else {
+							groupFirst = true
+						}
 					case keySecond:
-						groupSecond = true
+						if dblKeystroke {
+							t, groupSecond = checkTimeout(t, dblKeyTimeout)
+						} else {
+							groupSecond = true
+						}
 					default: // other keys
 						groupFirst = false
 						groupSecond = false
@@ -291,4 +306,14 @@ func listenEvents(
 
 		replyTo <- Message{Device: kbd, Events: events}
 	}
+}
+
+// Checks if the key was pressed before the timer was expired
+// Resets expired timer
+func checkTimeout(t *time.Timer, timeout int) (*time.Timer, bool) {
+	if t.Stop() {
+		return t, true
+	}
+	t.Reset(time.Duration(timeout) * time.Millisecond)
+	return t, false
 }
