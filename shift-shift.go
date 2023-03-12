@@ -1,6 +1,4 @@
 // Keyboard switcher for multiple keyboards.
-// Left shift — group1
-// Right shift - group2
 package main
 
 // go build -compiler gccgo -gccgoflags "-lX11" emacskey.go
@@ -22,7 +20,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/gvalkov/golang-evdev"
+	evdev "github.com/gvalkov/golang-evdev"
 )
 
 // Объединение данных для удобства передачи по каналу.
