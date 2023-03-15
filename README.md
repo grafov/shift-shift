@@ -2,7 +2,7 @@ What is it and why?
 ===================
 
 This utility allows you switch keyboard groups in X Window in the most
-ergonomic way (in my view :). 
+ergonomic way (in my view :).
 I think keys for switching keyboard layouts should be:
 
 1. Dedicated.
@@ -29,7 +29,7 @@ keys. But when you press Shift with other keys then it applied as
 modifier key.
 
 I not found out of the box solution how to setup X to use Shifts as
-standalone keys. Also I used two keyboards in same time (notebok internal and USB plugged) 
+standalone keys. Also I used two keyboards in same time (notebok internal and USB plugged)
 and was need to switch layouts on both of them. So I wrote this utility.
 
 So `shift-shift` has features:
@@ -38,7 +38,15 @@ So `shift-shift` has features:
 * RShift pressed standalone locks X to group2 layout
 * Layout switched on all keyboards simultaneously
 
-You need customize layout groups in your X config or with `setxkbmap`.
+You need customize layout groups in your X to
+
+
+
+
+
+
+
+cconfig or with `setxkbmap`.
 
 About code
 ==========
@@ -56,25 +64,25 @@ Install
 
 Binding of `evdev` for Go used so before build you need:
 
-    go get github.com/gvalkov/golang-evdev/evdev
+	go get github.com/gvalkov/golang-evdev/evdev
 
 Then as usual:
 
-    go build
+	go build
 
-Of course you need Go environment installed for build. 
+Of course you need Go environment installed for build.
 And as program uses Xlib through cgo interface then you need `xlib-devel`
 installed.
 
 Usage
 =====
 
-     $ sudo shift-shift -h
-     Usage of shift-shift:
-       -list=false: list all devices listened by evdev
-       -match="keyboard": string used to match keyboard device
-       -print=false: print pressed keys
-       -quiet=false: be silent
+	 $ sudo shift-shift -h
+	 Usage of shift-shift:
+	   -list=false: list all devices listened by evdev
+	   -match="keyboard": string used to match keyboard device
+	   -print=false: print pressed keys
+	   -quiet=false: be silent
 
 On start program find devices where name contains "keyboard" string. It assume there
 are keyboard devices. You may customize this by set your own string with `-match` arg.
@@ -85,9 +93,13 @@ Got list of all input devices with `list` arg.
 For autostart run it somewhere after X started with your account. I use `~/.bash_profile` for
 this.
 
-    sudo pidof shift-shift >/dev/null || sudo shift-shift -quiet >/dev/null &
+	sudo pidof shift-shift >/dev/null || sudo shift-shift -quiet >/dev/null &
 
 Thanks
 ======
 
 Thanks to people who contributed bugfixes and improvements for `shift-shift`.
+
+
+todo add ref to
+https://github.com/nmukhachev/sway-xkb-switcher
