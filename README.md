@@ -1,105 +1,110 @@
 What is it and why?
 ===================
 
-This utility allows you switch keyboard groups in X Window in the most
-ergonomic way (in my view :).
-I think keys for switching keyboard layouts should be:
+Language layout switcher for Xorg and Wayland (Sway support) with
+modifiers (Shift, Control and so on) as switcher keys.
 
-1. Dedicated.
-2. Non modal.
+This way allows to use the same key as a modifier and as a layout switcher without conflicts.
+
+The utility implements two ideas:
+
+1. You could use a key as a modifier when you HOLD it and as a key switcher when you TAP it.
+2. Cyclic switching by a single key is a bad idea, better to use DEDICATED keys for each language group.
+
+It maybe not true if you use a bunch of languages of same time but it
+is true for the most use cases with 2-3 langs.
 
 If you are often switch keyboard layouts (it real use case
 for those who speaking not only English) then dedicated keys are more easy
-for typing than key combos.  Old Soviet computers for example had
-dedicated key RUS/LAT for switch between Latin and Cyrillic. Sadly
-in modern English-oriented keyboards there are no dedicated keys
-for switch layouts.
+for typing than key combos. Old Soviet computers for example had
+dedicated key RUS/LAT for switch between Latin and Cyrillic.
 
-So if you need two layouts you need two keys each of them will select
-only one layout. For example if you want to type Cyrillic you press switch
-key dedicated for this layout. Other dedicated key switches keyboard to Latin.
-You may press switcher keys many times but each key will still select its own
-layout. Such non modal way minimizes number of mistakes and allow you to work
-without visual indication of current layout.
+Sadly in modern English-oriented keyboards there are no dedicated keys
+for switching layouts. Modifier keys usually used only by holding with
+other key. So it looks like a good compromise: you are still able to
+use them for their original purposes but when you tapping them they
+work as language layout switchers.
 
-After experiments with different control keys I found that most
-comfortable for my fingers will use LShift/RShift. LShift dedicated
-for first layout and RShift for second when they pressed as standalone
-keys. But when you press Shift with other keys then it applied as
-modifier key.
+By default Left Shift swithches to group 1 and Right Shift to
+group 2. You may change this behavior with command line options.
+Up to 4 xkb groups supported.
 
-I not found out of the box solution how to setup X to use Shifts as
-standalone keys. Also I used two keyboards in same time (notebok internal and USB plugged)
-and was need to switch layouts on both of them. So I wrote this utility.
-
-So `shift-shift` has features:
-
-* LShift pressed standalone locks X to group1 layout
-* RShift pressed standalone locks X to group2 layout
-* Layout switched on all keyboards simultaneously
-
-You need customize layout groups in your X to
-
-
-
-
-
-
-
-cconfig or with `setxkbmap`.
-
-About code
-==========
-
-I used Go language as it allow to me write programs quickly. And it allow
-easy to combine it with C code. Though whole program may be rewritten to C
-but I lazy to do it as it already works as I need.
-
-I not well know programming for X so used simple and crude ways to do things.
-Program use udev library and requires root privileges for reading `/dev/input/event*`.
-If you know right way how to do it without root then let me advice please.
+Also you could try to treat any devices as keyboards with `-match`
+option. It allows to switch group simultaneously on an arbitrary
+number of connected keyboards.
 
 Install
 =======
 
-Binding of `evdev` for Go used so before build you need:
+This is a Go program. You should need Go environment to build it from sources.
 
-	go get github.com/gvalkov/golang-evdev/evdev
+	go get github.com/grafov/shift-shift@latest
 
-Then as usual:
-
-	go build
-
-Of course you need Go environment installed for build.
-And as program uses Xlib through cgo interface then you need `xlib-devel`
-installed.
+`xlib-devel` libs should be installed. Check your distro.
 
 Usage
 =====
 
-	 $ sudo shift-shift -h
-	 Usage of shift-shift:
-	   -list=false: list all devices listened by evdev
-	   -match="keyboard": string used to match keyboard device
-	   -print=false: print pressed keys
-	   -quiet=false: be silent
+```
+$ shift-shift -h
+Usage of shift-shift:
+  -1 string
+		key used for switching to 1st xkb group (default "LEFTSHIFT")
+  -2 string
+		key used for switching to 2nd xkb group (default "RIGHTSHIFT")
+  -3 string
+		key used for switching to 3rd xkb group
+  -4 string
+		key used for switching to 4th xkb group
+  -double-keystroke
+		require pressing the same key twice to switch the layout
+  -double-keystroke-timeout int
+		second keystroke timeout in milliseconds (default 500)
+  -list
+		list all devices that found by evdev (not only keyboards)
+  -list-sway
+		list all devices recognized by Sway (not only keyboards)
+  -match string
+		regexp used to match keyboard device (default "keyboard")
+  -print
+		print pressed keys for debug (verbose output)
+  -quiet
+		be silent
+  -scan-once
+		scan for keyboards only at startup (less power consumption)
+  -switcher string
+		select method of switching (possible values are "auto", "xkb", "sway") (default "auto")
+```
 
-On start program find devices where name contains "keyboard" string. It assume there
-are keyboard devices. You may customize this by set your own string with `-match` arg.
-Got list of all input devices with `list` arg.
+On start the program tries to find devices where name contains "keyboard" string. The substring could be customized with `-match` option. [The syntax](https://pkg.go.dev/regexp/syntax) of regular expressions could be used. For example:
+```
+$ shift-shift -match "(?i)ergodox|ergohaven"
+```
 
-**Note:** you need root for operations with `/dev/input/*` so run it with `sudo` or similar tool.
+Check the list of evdev detected devices with:
 
-For autostart run it somewhere after X started with your account. I use `~/.bash_profile` for
-this.
+```
+$ shift-shift -list
+```
 
-	sudo pidof shift-shift >/dev/null || sudo shift-shift -quiet >/dev/null &
+**Wayland/Sway note.** In the same time `-match` option applied to the
+list of Sway input devices. You could check them with:
+
+```
+$ shift-shift -list-sway
+```
+
+**Note:** you need setup proper access for reading `/dev/input/*`
+devices. As a fallback try to run with `sudo` or similar tool.
 
 Thanks
 ======
 
-Thanks to people who contributed bugfixes and improvements for `shift-shift`.
+Thanks to people who contributed bugreports and improvements for
+`shift-shift`, especially to
+[@kovetsiy](https://github.com/kovetskiy),
+[@ArtemT](https://github.com/ArtemT),
+[@seletskiy](https://github.com/seletskiy).
 
-
-todo add ref to
-https://github.com/nmukhachev/sway-xkb-switcher
+Idea of Sway integration was inspired by Python code of
+https://github.com/nmukhachev/sway-xkb-switcher project.
