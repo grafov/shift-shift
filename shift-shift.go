@@ -1,17 +1,5 @@
-// Keyboard switcher for multiple keyboards.
-// Left shift — group1
-// Right shift - group2
+// Keyboard layout switcher for Xorg/XKB and Wayland/Sway.
 package main
-
-// go build -compiler gccgo -gccgoflags "-lX11" emacskey.go
-
-// #cgo LDFLAGS: -lX11
-// #include <stdlib.h>
-// #include <stdio.h>
-// #include <err.h>
-// #include <X11/Xlib.h>
-// #include <X11/XKBlib.h>
-import "C"
 
 import (
 	"flag"
@@ -22,30 +10,44 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/gvalkov/golang-evdev"
+	"github.com/grafov/shift-shift/sway"
+	"github.com/grafov/shift-shift/xkb"
+
+	evdev "github.com/gvalkov/golang-evdev"
 )
 
+const scanPeriod = 4 * time.Second
+
+type switcher interface {
+	Init() error
+	Switch(int)
+	Name() string
+	Close()
+}
+
 // Объединение данных для удобства передачи по каналу.
-type Message struct {
+type message struct {
 	Device *evdev.InputDevice
 	Events []evdev.InputEvent
 }
 
 func main() {
-	var (
-		listDevices   = flag.Bool("list", false, "list all devices listened by evdev")
-		printMode     = flag.Bool("print", false, "print pressed keys")
-		quietMode     = flag.Bool("quiet", false, "be silent")
-		deviceMatch   = flag.String("match", "keyboard", "regexp used to match keyboard device")
-		keysymFirst   = flag.String("first", "LEFTSHIFT", "key used for switching on first xkb group")
-		keysymSecond  = flag.String("second", "RIGHTSHIFT", "key used for switching on second xkb group")
-		scanOnce      = flag.Bool("scan-once", false, "scan for devices only at startup (less power consumption)")
-		dblKeystroke  = flag.Bool("double-keystroke", false, "require pressing the same key twice to switch the layout")
-		dblKeyTimeout = flag.Int("double-keystroke-timeout", 500, "second keystroke timeout in milliseconds")
-	)
+	var err error
+	listDevices := flag.Bool("list", false, `list all devices that found by evdev (not only keyboards)`)
+	listSwayDevices := flag.Bool("list-sway", false, `list all devices recognized by Sway (not only keyboards)`)
+	printMode := flag.Bool("print", false, `print pressed keys for debug (verbose output)`)
+	quietMode := flag.Bool("quiet", false, `be silent`)
+	kbdRegex := flag.String("match", "keyboard", `regexp used to match keyboard device`)
+	keysym1 := flag.String("1", "LEFTSHIFT", `key used for switching to 1st xkb group`)
+	keysym2 := flag.String("2", "RIGHTSHIFT", `key used for switching to 2nd xkb group`)
+	keysym3 := flag.String("3", "", `key used for switching to 3rd xkb group`)
+	keysym4 := flag.String("4", "", `key used for switching to 4th xkb group`)
+	scanOnce := flag.Bool("scan-once", false, `scan for keyboards only at startup (less power consumption)`)
+	dblKeystroke := flag.Bool("double-keystroke", false, `require pressing the same key twice to switch the layout`)
+	dblKeyTimeout := flag.Int("double-keystroke-timeout", 500, `second keystroke timeout in milliseconds`)
+	switchMethod := flag.String("switcher", "auto", `select method of switching (possible values are "auto", "xkb", "sway")`)
 
 	flag.Parse()
-
 	terminate := make(chan os.Signal)
 	signal.Notify(terminate, os.Interrupt)
 
@@ -53,46 +55,80 @@ func main() {
 		for devicePath, device := range getInputDevices() {
 			fmt.Printf("%s %s\n", devicePath, device.Name)
 		}
-	} else {
-		keyFirst, err := getKeyCode(*keysymFirst)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
-
-		keySecond, err := getKeyCode(*keysymSecond)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
-
-		reDeviceMatch, err := regexp.Compile(*deviceMatch)
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"unable to compile regexp for matching devices: %s\n",
-				err,
-			)
-			os.Exit(1)
-		}
-
-		display, err := openDisplay()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "unable to open X display: %s\n", err)
-			os.Exit(1)
-		}
-
-		defer C.XCloseDisplay(display)
-
-		go listenKeyboards(
-			display, keyFirst, keySecond,
-			*printMode, *quietMode,
-			reDeviceMatch, *scanOnce,
-			*dblKeystroke, *dblKeyTimeout,
-		)
-
-		<-terminate
+		return
 	}
+	if *listSwayDevices {
+		var list []sway.SwayInput
+		if list, err = sway.GetInputDevices(); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		for _, inp := range list {
+			fmt.Printf("%s type:%s name:%s layout:%s group:%d\n",
+				inp.Identifier, inp.Type, inp.Name, inp.XkbActiveLayoutName, inp.XkbActiveLayoutIndex)
+		}
+		return
+	}
+
+	switches := make([]uint16, 4, 4)
+	for i, k := range []string{*keysym1, *keysym2, *keysym3, *keysym4} {
+		if k == "" {
+			continue
+		}
+		switches[i], err = getKeyCode(k)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+	}
+
+	matchDevs, err := regexp.Compile(*kbdRegex)
+	if err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"unable to compile regexp for matching devices: %s\n",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	var sw switcher
+	switch *switchMethod {
+	case "sway":
+		sw = sway.New(matchDevs, scanPeriod, *scanOnce, *printMode)
+	case "xkb":
+		sw = xkb.New()
+	case "auto":
+		fallthrough
+	default:
+		if sway.CheckAvailability() {
+			sw = sway.New(matchDevs, scanPeriod, *scanOnce, *printMode)
+		} else {
+			sw = xkb.New()
+		}
+	}
+
+	if !*quietMode {
+		log.Printf("use %s switcher\n", sw.Name())
+	}
+	if err = sw.Init(); err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"unable to init switcher: %s\n",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	go listenKeyboards(sw,
+		switches,
+		*printMode, *quietMode,
+		matchDevs, *scanOnce,
+		*dblKeystroke, *dblKeyTimeout,
+	)
+
+	<-terminate
+	sw.Close()
 }
 
 // Возвращает keycode по текстому представлению клавиши.
@@ -103,46 +139,7 @@ func getKeyCode(keysym string) (uint16, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("keycode for keysym %s not found", keysym)
-}
-
-func openDisplay() (*C.Display, error) {
-	var xkbEventType, xkbError, xkbReason C.int
-	var majorVers, minorVers C.int
-
-	majorVers = C.XkbMajorVersion
-	minorVers = C.XkbMinorVersion
-
-	display := C.XkbOpenDisplay(
-		nil, &xkbEventType, &xkbError, &majorVers, &minorVers, &xkbReason,
-	)
-	if display == nil {
-		switch xkbReason {
-		case C.XkbOD_BadServerVersion:
-		case C.XkbOD_BadLibraryVersion:
-			return nil, fmt.Errorf("incompatible versions of client and server XKB libraries")
-		case C.XkbOD_ConnectionRefused:
-			return nil, fmt.Errorf("connection to X server refused")
-		case C.XkbOD_NonXkbServer:
-			return nil, fmt.Errorf("XKB extension is not present")
-		default:
-			return nil, fmt.Errorf("unknown error from XkbOpenDisplay: %d", xkbReason)
-		}
-	}
-
-	return display, nil
-}
-
-// Переключалка групп Xorg.
-func switchXkbGroup(display *C.Display, group uint) {
-	result := C.XkbLockGroup(display, C.XkbUseCoreKbd, C.uint(group))
-	if result != 1 {
-		log.Println("unable to send lock group request to X11")
-		return
-	}
-
-	// immideately output events buffer
-	C.XFlush(display)
+	return 0, fmt.Errorf("keycode for keysym %s is not found", keysym)
 }
 
 func getInputDevices() map[string]*evdev.InputDevice {
@@ -153,24 +150,19 @@ func getInputDevices() map[string]*evdev.InputDevice {
 		for _, devicePath := range devicePaths {
 			device, err := evdev.Open(devicePath)
 			if err != nil {
-				log.Printf("unable to open device %s: %s", devicePath, err)
-
+				fmt.Fprintf(os.Stderr, "unable to open device %s: %s", devicePath, err)
 				continue
 			}
-
 			inputDevices[devicePath] = device
 		}
 	}
-
 	return inputDevices
 }
 
 // Обнаруживает устройства, похожие на клавиатуры.
-func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool, scanOnce bool) {
-	var keyboards map[string]*evdev.InputDevice = make(map[string]*evdev.InputDevice)
-
+func scanDevices(mbox chan message, deviceMatch *regexp.Regexp, quietMode bool, scanOnce bool) {
+	keyboards := make(map[string]*evdev.InputDevice)
 	kbdLost := make(chan string, 8)
-
 	for {
 		select {
 		case input := <-kbdLost:
@@ -180,18 +172,11 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool, 
 				if deviceMatch.MatchString(device.Name) {
 					if _, ok := keyboards[devicePath]; !ok {
 						if !quietMode {
-							log.Printf(
-								"new keyboard at %s: %s",
-								devicePath, device.Name,
-							)
+							log.Printf("keyboard found at %s: %s", devicePath, device.Name)
 						}
-
 						if mbox != nil {
 							keyboards[devicePath] = device
-
-							go listenEvents(
-								devicePath, device, mbox, kbdLost, quietMode,
-							)
+							go listenEvents(devicePath, device, mbox, kbdLost, quietMode)
 						}
 					}
 				} else {
@@ -201,27 +186,27 @@ func scanDevices(mbox chan Message, deviceMatch *regexp.Regexp, quietMode bool, 
 					}
 				}
 			}
-
 			if scanOnce {
 				return
 			}
-
-			time.Sleep(4 * time.Second)
+			time.Sleep(scanPeriod)
 		}
 	}
 }
 
 // Принимает события ото всех клавиатур.
 func listenKeyboards(
-	display *C.Display,
-	keyFirst uint16, keySecond uint16,
+	sw switcher,
+	switches []uint16,
 	printMode, quietMode bool, deviceMatch *regexp.Regexp,
 	scanOnce bool, dblKeystroke bool, dblKeyTimeout int,
 ) {
-	var groupFirst, groupSecond bool
-	var t *time.Timer
+	var (
+		useGroup int
+		t        *time.Timer
+	)
 
-	inbox := make(chan Message, 8)
+	inbox := make(chan message, 8)
 	kbdLost := make(chan bool, 8)
 	kbdLost <- true // init
 	if dblKeystroke {
@@ -239,57 +224,54 @@ func listenKeyboards(
 				}
 
 				if printMode {
-					log.Printf(
-						"%s: %v %v %d",
-						msg.Device.Name, ev.Type, ev.Code, ev.Value,
-					)
+					pv := "released"
+					if ev.Value == 1 {
+						pv = "pressed"
+					}
+					log.Printf("%s type:%v code:%v %s", msg.Device.Name, ev.Type, ev.Code, pv)
 				}
-
 				switch ev.Value {
 				case 1: // key down
-					switch ev.Code {
-					case keyFirst:
-						if dblKeystroke {
-							t, groupFirst = checkTimeout(t, dblKeyTimeout)
-						} else {
-							groupFirst = true
+					useGroup = 0
+					for i, k := range switches {
+						if ev.Code != k {
+							continue
 						}
-					case keySecond:
+						ready := true
 						if dblKeystroke {
-							t, groupSecond = checkTimeout(t, dblKeyTimeout)
-						} else {
-							groupSecond = true
+							t, ready = checkTimeout(t, dblKeyTimeout)
 						}
-					default: // other keys
-						groupFirst = false
-						groupSecond = false
+						if ready {
+							useGroup = i + 1
+						}
 					}
 				case 0: // key up
-					switch ev.Code {
-					case keyFirst:
-						if groupFirst && !groupSecond {
-							switchXkbGroup(display, C.XkbGroup1Index)
-							groupFirst = false
-						}
-					case keySecond:
-						if groupSecond && !groupFirst {
-							switchXkbGroup(display, C.XkbGroup2Index)
-							groupSecond = false
-						}
-					default:
-						groupFirst = false
-						groupSecond = false
+					if useGroup == 0 {
+						break
 					}
+					for i, k := range switches {
+						if ev.Code != k {
+							continue
+						}
+						if useGroup == i+1 {
+							if printMode {
+								log.Printf("%s switches group to %d", msg.Device.Name, useGroup)
+							}
+							sw.Switch(useGroup)
+						}
+					}
+					useGroup = 0
 				}
 			}
 		}
 	}
 }
 
+// Check new key presses/releases from choosen keyboards.
 func listenEvents(
 	name string,
 	kbd *evdev.InputDevice,
-	replyTo chan Message,
+	replyTo chan message,
 	kbdLost chan string,
 	quietMode bool,
 ) {
@@ -299,12 +281,11 @@ func listenEvents(
 			if !quietMode {
 				log.Printf("keyboard %s disconnected", kbd.Name)
 			}
-
 			kbdLost <- name
 			return
 		}
 
-		replyTo <- Message{Device: kbd, Events: events}
+		replyTo <- message{Device: kbd, Events: events}
 	}
 }
 
