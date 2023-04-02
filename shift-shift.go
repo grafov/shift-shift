@@ -13,7 +13,7 @@ import (
 	"github.com/grafov/shift-shift/sway"
 	"github.com/grafov/shift-shift/xkb"
 
-	evdev "github.com/gvalkov/golang-evdev"
+	"github.com/grafov/evdev"
 )
 
 const scanPeriod = 4 * time.Second
