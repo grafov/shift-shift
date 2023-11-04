@@ -215,6 +215,7 @@ func listenKeyboards(
 
 	go scanDevices(inbox, deviceMatch, quietMode, scanOnce)
 
+	var prevKey evdev.InputEvent
 	for {
 		select {
 		case msg := <-inbox:
@@ -222,11 +223,23 @@ func listenKeyboards(
 				if ev.Type != evdev.EV_KEY {
 					continue
 				}
-
+				if prevKey.Code == ev.Code && prevKey.Value == ev.Value && prevKey.Type == ev.Type {
+					continue
+				}
+				prevKey.Type = ev.Type
+				prevKey.Code = ev.Code
+				prevKey.Value = ev.Value
 				if printMode {
-					pv := "released"
-					if ev.Value == 1 {
+					var pv string
+					switch ev.Value {
+					case 0:
+						pv = "released"
+					case 1:
 						pv = "pressed"
+					case 2:
+						pv = "hold"
+					default:
+						pv = "undefined status"
 					}
 					log.Printf("%s type:%v code:%v %s", msg.Device.Name, ev.Type, ev.Code, pv)
 				}
