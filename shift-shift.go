@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/grafov/shift-shift/sway"
+	"github.com/grafov/shift-shift/river"
 	"github.com/grafov/shift-shift/xkb"
 
 	"github.com/grafov/evdev"
@@ -45,7 +46,7 @@ func main() {
 	scanOnce := flag.Bool("scan-once", false, `scan for keyboards only at startup (less power consumption)`)
 	dblKeystroke := flag.Bool("double-keystroke", false, `require pressing the same key twice to switch the layout`)
 	dblKeyTimeout := flag.Int("double-keystroke-timeout", 500, `second keystroke timeout in milliseconds`)
-	switchMethod := flag.String("switcher", "auto", `select method of switching (possible values are "auto", "xkb", "sway")`)
+	switchMethod := flag.String("switcher", "auto", `select method of switching (possible values are "auto", "xkb", "river", "sway")`)
 
 	flag.Parse()
 	terminate := make(chan os.Signal)
@@ -94,6 +95,8 @@ func main() {
 
 	var sw switcher
 	switch *switchMethod {
+	case "river":
+		sw = river.New(matchDevs, scanPeriod, *scanOnce, *printMode)
 	case "sway":
 		sw = sway.New(matchDevs, scanPeriod, *scanOnce, *printMode)
 	case "xkb":

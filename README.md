@@ -1,35 +1,32 @@
 What is it and why?
 ===================
 
-Language layout switcher for Xorg and Wayland (Sway support) with
-modifiers (Shift, Control and so on) as switcher keys.
+Language layout switcher for Xorg and Wayland (Sway & River WM are
+supported).
 
-This way allows to use the same key as a modifier and as a layout switcher without conflicts.
+The utility distinguishes when the user tap (press and release) a key
+vs continuos holding of a key. It allows to use modifier keys (like
+Shift key for example) as a layout switcher as modifier in the same
+time.
 
-The utility implements two ideas:
+The main design idea is:
 
-1. You could use a key as a modifier when you HOLD it and as a key switcher when you TAP it.
-2. Cyclic switching by a single key is a bad idea, better to use DEDICATED keys for each language group.
+> Cyclic switching by a single key is a bad idea. Dedicated keys should
+> be used for switching. Especially when more then two layouts in use.
 
-It maybe not true if you use a bunch of languages of same time but it
-is true for the most use cases with 2-3 langs.
+By default it uses Left Shift for group 1 and Right Shift for group 2
+for xkb. This way makes special indicators for current layout just
+useless. Because when you want to type sowewhat in the specific layout
+you are just tap switcher key before. It is not a problem if you press
+it again because there are no cycling switching. By pressing the key
+you be sure *which* layout you are selected.
 
-If you are often switch keyboard layouts (it real use case
-for those who speaking not only English) then dedicated keys are more easy
-for typing than key combos. Old Soviet computers for example had
-dedicated key RUS/LAT for switch between Latin and Cyrillic.
+Up to 4 xkb groups supported for Xorg. For Wayland
+[sway](https://swaywm.org/) and
+[river](https://github.com/riverwm/river) window managers are
+supported. Check the `-switcher` opion.
 
-Sadly in modern English-oriented keyboards there are no dedicated keys
-for switching layouts. Modifier keys usually used only by holding with
-other key. So it looks like a good compromise: you are still able to
-use them for their original purposes but when you tapping them they
-work as language layout switchers.
-
-By default Left Shift swithches to group 1 and Right Shift to
-group 2. You may change this behavior with command line options.
-Up to 4 xkb groups supported.
-
-Also you could try to treat any devices as keyboards with `-match`
+You could try to treat any devices as keyboards with `-match`
 option. It allows to switch group simultaneously on an arbitrary
 number of connected keyboards.
 
@@ -63,7 +60,7 @@ Usage of shift-shift:
   -list
 		list all devices that found by evdev (not only keyboards)
   -list-sway
-		list all devices recognized by Sway (not only keyboards)
+		list all devices recognized by Sway WM (not only keyboards)
   -match string
 		regexp used to match keyboard device (default "keyboard")
   -print
@@ -73,7 +70,7 @@ Usage of shift-shift:
   -scan-once
 		scan for keyboards only at startup (less power consumption)
   -switcher string
-		select method of switching (possible values are "auto", "xkb", "sway") (default "auto")
+		select method of switching (possible values are "auto", "xkb", "river", "sway") (default is "auto")
 ```
 
 On start the program tries to find devices where name contains "keyboard" string. The substring could be customized with `-match` option. [The syntax](https://pkg.go.dev/regexp/syntax) of regular expressions could be used. For example:
