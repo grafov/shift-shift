@@ -22,7 +22,7 @@ func New() *Xkb {
 }
 
 func (*Xkb) Name() string {
-	return "xkb"
+	return "XKB"
 }
 
 func (x *Xkb) Init() error {

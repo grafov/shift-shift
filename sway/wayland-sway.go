@@ -32,7 +32,7 @@ func (s *Sway) Init() error {
 }
 
 func (*Sway) Name() string {
-	return "sway"
+	return "Sway"
 }
 
 func (s *Sway) Switch(idx int) {
@@ -52,7 +52,7 @@ func (*Sway) Close() {}
 
 func (s *Sway) matchOnlyKeyboards() {
 	for {
-		inputs, err := GetInputDevices()
+		inputs, err := getDevices()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "can't get input devices from Sway: %s", err)
 		}

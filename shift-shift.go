@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/grafov/shift-shift/hyprland"
 	"github.com/grafov/shift-shift/sway"
 	"github.com/grafov/shift-shift/xkb"
 
@@ -35,9 +36,11 @@ func main() {
 	var err error
 	listDevices := flag.Bool("list", false, `list all devices that found by evdev (not only keyboards)`)
 	listSwayDevices := flag.Bool("list-sway", false, `list all devices recognized by Sway (not only keyboards)`)
+	listHyprlandDevices := flag.Bool("list-hypr", false, `list all keyboards recognized by Hyprland`)
 	printMode := flag.Bool("print", false, `print pressed keys for debug (verbose output)`)
 	quietMode := flag.Bool("quiet", false, `be silent`)
-	kbdRegex := flag.String("match", "keyboard", `regexp used to match keyboard device`)
+	kbdRegex := flag.String("match", "keyboard", `regexp used to match input keyboard device as it listed by evdev`)
+	wmRegex := flag.String("match-wm", "keyboard", `optional regexp used to match device in WM, if not set evdev regexp used`)
 	keysym1 := flag.String("1", "LEFTSHIFT", `key used for switching to 1st xkb group`)
 	keysym2 := flag.String("2", "RIGHTSHIFT", `key used for switching to 2nd xkb group`)
 	keysym3 := flag.String("3", "", `key used for switching to 3rd xkb group`)
@@ -45,10 +48,10 @@ func main() {
 	scanOnce := flag.Bool("scan-once", false, `scan for keyboards only at startup (less power consumption)`)
 	dblKeystroke := flag.Bool("double-keystroke", false, `require pressing the same key twice to switch the layout`)
 	dblKeyTimeout := flag.Int("double-keystroke-timeout", 500, `second keystroke timeout in milliseconds`)
-	switchMethod := flag.String("switcher", "auto", `select method of switching (possible values are "auto", "xkb", "sway")`)
+	switchMethod := flag.String("switcher", "auto", `select method of switching (possible values are "auto", "xkb", "sway", "hypr")`)
 
 	flag.Parse()
-	terminate := make(chan os.Signal)
+	terminate := make(chan os.Signal, 1)
 	signal.Notify(terminate, os.Interrupt)
 
 	if *listDevices {
@@ -58,19 +61,30 @@ func main() {
 		return
 	}
 	if *listSwayDevices {
-		var list []sway.SwayInput
-		if list, err = sway.GetInputDevices(); err != nil {
+		var list []string
+		if list, err = sway.PrintDevices(); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
 		for _, inp := range list {
-			fmt.Printf("%s type:%s name:%s layout:%s group:%d\n",
-				inp.Identifier, inp.Type, inp.Name, inp.XkbActiveLayoutName, inp.XkbActiveLayoutIndex)
+			fmt.Println(inp)
 		}
 		return
 	}
 
-	switches := make([]uint16, 4, 4)
+	if *listHyprlandDevices {
+		var list []string
+		if list, err = hyprland.PrintDevices(); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		for _, inp := range list {
+			fmt.Println(inp)
+		}
+		return
+	}
+
+	switches := make([]uint16, 4)
 	for i, k := range []string{*keysym1, *keysym2, *keysym3, *keysym4} {
 		if k == "" {
 			continue
@@ -82,11 +96,25 @@ func main() {
 		}
 	}
 
-	matchDevs, err := regexp.Compile(*kbdRegex)
+	matchEvdevKbds, err := regexp.Compile(*kbdRegex)
 	if err != nil {
 		fmt.Fprintf(
 			os.Stderr,
-			"unable to compile regexp for matching devices: %s\n",
+			"unable to compile regexp for matching devices of evdev: %s\n",
+			err,
+		)
+		os.Exit(1)
+	}
+
+	if wmRegex == nil {
+		wmRegex = kbdRegex
+	}
+
+	matchWMKbds, err := regexp.Compile(*wmRegex)
+	if err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"unable to compile regexp for matching devices in WM: %s\n",
 			err,
 		)
 		os.Exit(1)
@@ -94,16 +122,21 @@ func main() {
 
 	var sw switcher
 	switch *switchMethod {
+	case "hypr":
+		sw = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
 	case "sway":
-		sw = sway.New(matchDevs, scanPeriod, *scanOnce, *printMode)
+		sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
 	case "xkb":
 		sw = xkb.New()
 	case "auto":
 		fallthrough
 	default:
-		if sway.CheckAvailability() {
-			sw = sway.New(matchDevs, scanPeriod, *scanOnce, *printMode)
-		} else {
+		switch {
+		case hyprland.CheckAvailability():
+			sw = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+		case sway.CheckAvailability():
+			sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+		default:
 			sw = xkb.New()
 		}
 	}
@@ -123,7 +156,7 @@ func main() {
 	go listenKeyboards(sw,
 		switches,
 		*printMode, *quietMode,
-		matchDevs, *scanOnce,
+		matchEvdevKbds, *scanOnce,
 		*dblKeystroke, *dblKeyTimeout,
 	)
 
@@ -172,7 +205,7 @@ func scanDevices(mbox chan message, deviceMatch *regexp.Regexp, quietMode bool, 
 				if deviceMatch.MatchString(device.Name) {
 					if _, ok := keyboards[devicePath]; !ok {
 						if !quietMode {
-							log.Printf("keyboard found at %s: %s", devicePath, device.Name)
+							log.Printf("evdev keyboard found at %s: %s", devicePath, device.Name)
 						}
 						if mbox != nil {
 							keyboards[devicePath] = device
@@ -216,65 +249,62 @@ func listenKeyboards(
 	go scanDevices(inbox, deviceMatch, quietMode, scanOnce)
 
 	var prevKey evdev.InputEvent
-	for {
-		select {
-		case msg := <-inbox:
-			for _, ev := range msg.Events {
-				if ev.Type != evdev.EV_KEY {
-					continue
-				}
-				if prevKey.Code == ev.Code && prevKey.Value == ev.Value && prevKey.Type == ev.Type {
-					continue
-				}
-				prevKey.Type = ev.Type
-				prevKey.Code = ev.Code
-				prevKey.Value = ev.Value
-				if printMode {
-					var pv string
-					switch ev.Value {
-					case 0:
-						pv = "released"
-					case 1:
-						pv = "pressed"
-					case 2:
-						pv = "hold"
-					default:
-						pv = "undefined status"
-					}
-					log.Printf("%s type:%v code:%v %s", msg.Device.Name, ev.Type, ev.Code, pv)
-				}
+	for msg := range inbox {
+		for _, ev := range msg.Events {
+			if ev.Type != evdev.EV_KEY {
+				continue
+			}
+			if prevKey.Code == ev.Code && prevKey.Value == ev.Value && prevKey.Type == ev.Type {
+				continue
+			}
+			prevKey.Type = ev.Type
+			prevKey.Code = ev.Code
+			prevKey.Value = ev.Value
+			if printMode {
+				var pv string
 				switch ev.Value {
-				case 1: // key down
-					useGroup = 0
-					for i, k := range switches {
-						if ev.Code != k {
-							continue
-						}
-						ready := true
-						if dblKeystroke {
-							t, ready = checkTimeout(t, dblKeyTimeout)
-						}
-						if ready {
-							useGroup = i + 1
-						}
-					}
-				case 0: // key up
-					if useGroup == 0 {
-						break
-					}
-					for i, k := range switches {
-						if ev.Code != k {
-							continue
-						}
-						if useGroup == i+1 {
-							if printMode {
-								log.Printf("%s switches group to %d", msg.Device.Name, useGroup)
-							}
-							sw.Switch(useGroup)
-						}
-					}
-					useGroup = 0
+				case 0:
+					pv = "released"
+				case 1:
+					pv = "pressed"
+				case 2:
+					pv = "hold"
+				default:
+					pv = "undefined status"
 				}
+				log.Printf("%s type:%v code:%v %s", msg.Device.Name, ev.Type, ev.Code, pv)
+			}
+			switch ev.Value {
+			case 1: // key down
+				useGroup = 0
+				for i, k := range switches {
+					if ev.Code != k {
+						continue
+					}
+					ready := true
+					if dblKeystroke {
+						t, ready = checkTimeout(t, dblKeyTimeout)
+					}
+					if ready {
+						useGroup = i + 1
+					}
+				}
+			case 0: // key up
+				if useGroup == 0 {
+					break
+				}
+				for i, k := range switches {
+					if ev.Code != k {
+						continue
+					}
+					if useGroup == i+1 {
+						if printMode {
+							log.Printf("%s switches group to %d", msg.Device.Name, useGroup)
+						}
+						sw.Switch(useGroup)
+					}
+				}
+				useGroup = 0
 			}
 		}
 	}
