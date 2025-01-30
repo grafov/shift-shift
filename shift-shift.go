@@ -123,7 +123,9 @@ func main() {
 	var sw switcher
 	switch *switchMethod {
 	case "hypr":
-		sw = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+		if sw, err = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode); err != nil {
+			break
+		}
 	case "sway":
 		sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
 	case "xkb":
@@ -133,12 +135,22 @@ func main() {
 	default:
 		switch {
 		case hyprland.CheckAvailability():
-			sw = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+			if sw, err = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode); err != nil {
+				break
+			}
 		case sway.CheckAvailability():
 			sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
 		default:
 			sw = xkb.New()
 		}
+	}
+	if err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"unable to start switcher: %s\n",
+			err,
+		)
+		os.Exit(1)
 	}
 
 	if !*quietMode {
