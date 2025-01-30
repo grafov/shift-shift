@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/thiagokokada/hyprland-go"
+	"github.com/thiagokokada/hyprland-go/helpers"
 )
 
 type keyboard struct {
@@ -19,7 +22,11 @@ type keyboard struct {
 }
 
 func PrintDevices() ([]string, error) {
-	inputs, err := getDevices()
+	s, err := helpers.GetSocket(helpers.RequestSocket)
+	if err != nil {
+		return nil, err
+	}
+	inputs, err := getDevices(hyprland.NewClient(s))
 	if err != nil {
 		return nil, err
 	}
@@ -34,8 +41,8 @@ func PrintDevices() ([]string, error) {
 	return output, nil
 }
 
-func getDevices() ([]keyboard, error) {
-	devs, err := hypr.Devices()
+func getDevices(h *hyprland.RequestClient) ([]keyboard, error) {
+	devs, err := h.Devices()
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +69,7 @@ func CheckAvailability() bool {
 	}
 	checkVars := []string{"DESKTOP_SESSION", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP"}
 	for _, v := range checkVars {
-		if strings.ToLower(os.Getenv(v)) == "sway" {
+		if strings.ToLower(os.Getenv(v)) == "hyprland" {
 			return true
 		}
 	}

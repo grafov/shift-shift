@@ -10,23 +10,26 @@ import (
 	"time"
 
 	"github.com/thiagokokada/hyprland-go"
+	"github.com/thiagokokada/hyprland-go/helpers"
 )
 
-// FIXME use NewClient() and move into Hyprland struct
-var hypr = hyprland.MustClient()
-
 type Hyprland struct {
-	re    *regexp.Regexp
-	sleep time.Duration
-	once  bool
-	debug bool
+	client *hyprland.RequestClient
+	re     *regexp.Regexp
+	sleep  time.Duration
+	once   bool
+	debug  bool
 
 	m         sync.RWMutex
 	keyboards []string
 }
 
-func New(re *regexp.Regexp, scanPeriod time.Duration, scanOnce bool, debug bool) *Hyprland {
-	return &Hyprland{re: re, sleep: scanPeriod, once: scanOnce, debug: debug}
+func New(re *regexp.Regexp, scanPeriod time.Duration, scanOnce bool, debug bool) (*Hyprland, error) {
+	s, err := helpers.GetSocket(helpers.RequestSocket)
+	if err != nil {
+		return nil, err
+	}
+	return &Hyprland{client: hyprland.NewClient(s), re: re, sleep: scanPeriod, once: scanOnce, debug: debug}, nil
 }
 
 func (h *Hyprland) Init() error {
@@ -40,7 +43,7 @@ func (h *Hyprland) Switch(id int) {
 		if h.debug {
 			log.Printf("switch hyprland kbd \"%s\" to group %d", kbd, id-1)
 		}
-		resp, err := hypr.SwitchXkbLayout(kbd, strconv.Itoa(id-1))
+		resp, err := h.client.SwitchXkbLayout(kbd, strconv.Itoa(id-1))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "response: %v, error: %s", resp, err)
 		}
@@ -56,7 +59,7 @@ func (h *Hyprland) Close() {}
 
 func (h *Hyprland) matchKeyboards(debug bool) {
 	for {
-		inputs, err := getDevices()
+		inputs, err := getDevices(h.client)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "can't get input devices from Hyprland: %s", err)
 		}
