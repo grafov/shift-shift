@@ -13,17 +13,18 @@ import (
 const swayKbdType = "keyboard"
 
 type Sway struct {
-	re    *regexp.Regexp
-	sleep time.Duration
-	once  bool
-	debug bool
+	re         *regexp.Regexp
+	sleep      time.Duration
+	sleepNoKbd time.Duration
+	once       bool
+	debug      bool
 
 	m         sync.Mutex
 	keyboards []string
 }
 
-func New(re *regexp.Regexp, scanPeriod time.Duration, scanOnce bool, debug bool) *Sway {
-	return &Sway{re: re, sleep: scanPeriod, once: scanOnce, debug: debug}
+func New(re *regexp.Regexp, scanPeriod, scanNoKbd time.Duration, scanOnce bool, debug bool) *Sway {
+	return &Sway{re: re, sleep: scanPeriod, sleepNoKbd: scanNoKbd, once: scanOnce, debug: debug}
 }
 
 func (s *Sway) Init() error {
@@ -63,9 +64,14 @@ func (s *Sway) matchOnlyKeyboards() {
 				s.keyboards = append(s.keyboards, i.Identifier)
 			}
 		}
+		countKbd := len(s.keyboards)
 		s.m.Unlock()
 		if s.once {
 			return
+		}
+		if countKbd == 0 {
+			time.Sleep(s.sleepNoKbd)
+			continue
 		}
 		time.Sleep(s.sleep)
 	}

@@ -17,7 +17,10 @@ import (
 	"github.com/grafov/evdev"
 )
 
-const scanPeriod = 4 * time.Second
+const (
+	scanPeriod            = 15 * time.Second
+	scanPeriodNoKeyboards = 2 * time.Second
+)
 
 type switcher interface {
 	Init() error
@@ -123,11 +126,11 @@ func main() {
 	var sw switcher
 	switch *switchMethod {
 	case "hypr":
-		if sw, err = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode); err != nil {
+		if sw, err = hyprland.New(matchWMKbds, scanPeriod, scanPeriodNoKeyboards, *scanOnce, *printMode); err != nil {
 			break
 		}
 	case "sway":
-		sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+		sw = sway.New(matchWMKbds, scanPeriod, scanPeriodNoKeyboards, *scanOnce, *printMode)
 	case "xkb":
 		sw = xkb.New()
 	case "auto":
@@ -135,11 +138,11 @@ func main() {
 	default:
 		switch {
 		case hyprland.CheckAvailability():
-			if sw, err = hyprland.New(matchWMKbds, scanPeriod, *scanOnce, *printMode); err != nil {
+			if sw, err = hyprland.New(matchWMKbds, scanPeriod, scanPeriodNoKeyboards, *scanOnce, *printMode); err != nil {
 				break
 			}
 		case sway.CheckAvailability():
-			sw = sway.New(matchWMKbds, scanPeriod, *scanOnce, *printMode)
+			sw = sway.New(matchWMKbds, scanPeriod, scanPeriodNoKeyboards, *scanOnce, *printMode)
 		default:
 			sw = xkb.New()
 		}
@@ -208,10 +211,12 @@ func getInputDevices() map[string]*evdev.InputDevice {
 func scanDevices(mbox chan message, deviceMatch *regexp.Regexp, quietMode bool, scanOnce bool) {
 	keyboards := make(map[string]*evdev.InputDevice)
 	kbdLost := make(chan string, 8)
+	var notified bool
 	for {
 		select {
 		case input := <-kbdLost:
 			delete(keyboards, input)
+			notified = false
 		default:
 			for devicePath, device := range getInputDevices() {
 				if deviceMatch.MatchString(device.Name) {
@@ -234,7 +239,15 @@ func scanDevices(mbox chan message, deviceMatch *regexp.Regexp, quietMode bool, 
 			if scanOnce {
 				return
 			}
-			time.Sleep(scanPeriod)
+			if len(keyboards) == 0 {
+				if !quietMode && !notified {
+					log.Print("no keyboards connected")
+					notified = true
+				}
+				time.Sleep(scanPeriodNoKeyboards)
+			} else {
+				time.Sleep(scanPeriod)
+			}
 		}
 	}
 }

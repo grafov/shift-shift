@@ -14,22 +14,23 @@ import (
 )
 
 type Hyprland struct {
-	client *hyprland.RequestClient
-	re     *regexp.Regexp
-	sleep  time.Duration
-	once   bool
-	debug  bool
+	client     *hyprland.RequestClient
+	re         *regexp.Regexp
+	sleep      time.Duration
+	sleepNoKbd time.Duration
+	once       bool
+	debug      bool
 
 	m         sync.RWMutex
 	keyboards []string
 }
 
-func New(re *regexp.Regexp, scanPeriod time.Duration, scanOnce bool, debug bool) (*Hyprland, error) {
+func New(re *regexp.Regexp, scanPeriod, scanNoKbd time.Duration, scanOnce bool, debug bool) (*Hyprland, error) {
 	s, err := helpers.GetSocket(helpers.RequestSocket)
 	if err != nil {
 		return nil, err
 	}
-	return &Hyprland{client: hyprland.NewClient(s), re: re, sleep: scanPeriod, once: scanOnce, debug: debug}, nil
+	return &Hyprland{client: hyprland.NewClient(s), re: re, sleep: scanPeriod, sleepNoKbd: scanNoKbd, once: scanOnce, debug: debug}, nil
 }
 
 func (h *Hyprland) Init() error {
@@ -74,9 +75,14 @@ func (h *Hyprland) matchKeyboards(debug bool) {
 				h.keyboards = append(h.keyboards, in.Name)
 			}
 		}
+		kbdCount := len(h.keyboards)
 		h.m.Unlock()
 		if h.once {
 			return
+		}
+		if kbdCount == 0 {
+			time.Sleep(h.sleepNoKbd)
+			continue
 		}
 		time.Sleep(h.sleep)
 	}
